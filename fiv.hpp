@@ -11,10 +11,17 @@ namespace fiv {
 	class Vector {
 	private:
 
+		bool m_KeepOrder;
 		std::vector<T> m_Data;
 		std::vector<ID> m_Ids;
 		std::vector<ID> m_RevIds;
 		std::vector<ID> m_FreeIdSlots;
+
+	public:
+
+		Vector() : m_KeepOrder(true) {}
+		Vector(bool keepOrder) : m_KeepOrder(keepOrder) {}
+		Vector(const Vector& other) = default;
 
 	public:
 
@@ -38,13 +45,24 @@ namespace fiv {
 			return idIndex;
 		}
 	public:
+		void swap(ID el1, ID el2) {
+			std::swap(m_Ids[(size_t)el1], m_Ids[(size_t)el2]);
+			std::swap(m_Data[(size_t)m_Ids[(size_t)el1]], m_Data[(size_t)m_Ids[(size_t)el2]]);
+			std::swap(m_RevIds[(size_t)m_Ids[(size_t)el1]], m_RevIds[(size_t)m_Ids[(size_t)el2]]);
+		}
+
 		void remove(ID id) {
 			const ID m_DataRemoveIndex = m_Ids[(size_t)id];
 			const ID lastDataID = m_RevIds[(size_t)m_RevIds.size() - 1];
-
-			std::swap(m_Ids[(size_t)id], m_Ids[(size_t)lastDataID]);
-			std::swap(m_Data[(size_t)m_Ids[(size_t)id]], m_Data[(size_t)m_Ids[(size_t)lastDataID]]);
-			std::swap(m_RevIds[(size_t)m_Ids[(size_t)id]], m_RevIds[(size_t)m_Ids[(size_t)lastDataID]]);
+			
+			if (m_KeepOrder) {
+				for (size_t i = objIndex(id); i < m_Data.size()-1; i++) {
+					swap(idAt(i), idAt(i + 1));
+				}
+			}
+			else {
+				swap(id, lastDataID);
+			}
 
 			m_FreeIdSlots.push_back(id);
 			m_Data.pop_back();
