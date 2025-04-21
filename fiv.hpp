@@ -56,7 +56,7 @@ namespace fiv {
 			const ID lastDataID = m_RevIds[(size_t)m_RevIds.size() - 1];
 			
 			if (m_KeepOrder) {
-				for (size_t i = objIndex(id); i < m_Data.size()-1; i++) {
+				for (size_t i = indexOf(id); i < m_Data.size()-1; i++) {
 					swap(idAt(i), idAt(i + 1));
 				}
 			}
@@ -156,7 +156,7 @@ namespace fiv {
 			return m_Data[index];
 		}
 
-		inline size_t objIndex(ID id) const {
+		inline size_t indexOf(ID id) const {
 			return m_Ids[id];
 		}
 
