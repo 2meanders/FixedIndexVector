@@ -1,196 +1,282 @@
 #pragma once
 #include <vector>
 #include <stdexcept>
+#include <algorithm>
 #include <string>
 
-namespace fiv {
+#include <cstddef>
+#include <limits>
 
-	using ID = int64_t;
+namespace fiv
+{
 
-	template<typename T>
-	class Vector {
+	// A unique identifier for an element in the vector. It is designed to be opaque and only used through the Vector class.
+	// Note! IDs are recycled after an element is removed.
+	struct ID
+	{
 	private:
+		std::size_t value;
 
-		bool m_KeepOrder;
-		std::vector<T> m_Data;
-		std::vector<ID> m_Ids;
-		std::vector<ID> m_RevIds;
-		std::vector<ID> m_FreeIdSlots;
+		inline operator std::size_t() const { return value; }
 
 	public:
+		ID() : value(std::numeric_limits<std::size_t>::max()) {}
+		ID(const ID &other) = default;
+		explicit ID(std::size_t value) : value(value) {}
 
+		ID &operator=(const ID &other) = default;
+
+		inline bool operator==(const ID &other) const
+		{
+			return value == other.value;
+		}
+
+		inline bool operator!=(const ID &other) const
+		{
+			return value != other.value;
+		}
+
+		inline bool isInvalid() const
+		{
+			return value == std::numeric_limits<std::size_t>::max();
+		}
+
+		inline void invalidate()
+		{
+			value = std::numeric_limits<std::size_t>::max();
+		}
+
+		template <typename T>
+		friend class Vector;
+	};
+
+	template <typename T>
+	class Vector
+	{
+	private:
+		bool m_KeepOrder;
+
+		// m_Data stores the actual elements of the vector.
+		std::vector<T> m_Data;
+
+		// m_IDs maps an ID index to the corresponding index in m_Data. The position of an ID in m_IDs is its ID value.
+		std::vector<size_t> m_IDs;
+
+		// m_RevIDs maps an index in m_Data to the corresponding ID index. The position of an element in m_Data is its data index.
+		std::vector<ID> m_RevIDs;
+
+		// m_FreeIDSlots stores the indices of IDs in m_IDs that have been removed and can be reused for new elements.
+		std::vector<ID> m_FreeIDSlots;
+
+	public:
 		Vector() : m_KeepOrder(true) {}
 		Vector(bool keepOrder) : m_KeepOrder(keepOrder) {}
-		Vector(const Vector& other) = default;
+		Vector(const Vector &other) = default;
 
 	public:
-
-		void reserve(size_t numElements) {
+		void reserve(size_t numElements)
+		{
 			m_Data.reserve(numElements);
-			m_Ids.reserve(numElements - m_FreeIdSlots.size());
-			m_RevIds.reserve(numElements);
+			m_IDs.reserve(numElements - m_FreeIDSlots.size());
+			m_RevIDs.reserve(numElements);
 		}
 
 	private:
-		ID addID(ID location) {
-			ID idIndex = m_Ids.size();
-			if (!m_FreeIdSlots.empty()) {
-				idIndex = m_FreeIdSlots[m_FreeIdSlots.size() - 1];
-				m_FreeIdSlots.pop_back();
-				m_Ids[(size_t)idIndex] = location;
+		ID addID(ID location)
+		{
+			ID idIndex{m_IDs.size()};
+			if (!m_FreeIDSlots.empty())
+			{
+				idIndex = m_FreeIDSlots.back();
+				m_FreeIDSlots.pop_back();
+				m_IDs[idIndex.value] = location.value;
 			}
-			else {
-				m_Ids.push_back(location);
+			else
+			{
+				m_IDs.push_back(location.value);
 			}
 			return idIndex;
 		}
-	public:
-		void swap(ID el1, ID el2) {
-			std::swap(m_Ids[(size_t)el1], m_Ids[(size_t)el2]);
-			std::swap(m_Data[(size_t)m_Ids[(size_t)el1]], m_Data[(size_t)m_Ids[(size_t)el2]]);
-			std::swap(m_RevIds[(size_t)m_Ids[(size_t)el1]], m_RevIds[(size_t)m_Ids[(size_t)el2]]);
+
+		// Swaps the locations of two elements in the data vector, and updates the corresponding IDs and reverse IDs.
+		// Does not swap the data that the IDs point to, only the locations of the IDs in the data vector.
+		void swapDataLocation(ID el1, ID el2)
+		{
+			size_t idx1 = m_IDs[el1.value];
+			size_t idx2 = m_IDs[el2.value];
+			std::swap(m_IDs[el1.value], m_IDs[el2.value]);
+			std::swap(m_Data[idx1], m_Data[idx2]);
+			std::swap(m_RevIDs[idx1], m_RevIDs[idx2]);
 		}
 
-		void remove(ID id) {
-			const ID m_DataRemoveIndex = m_Ids[(size_t)id];
-			const ID lastDataID = m_RevIds[(size_t)m_RevIds.size() - 1];
-			
-			if (m_KeepOrder) {
-				for (size_t i = indexOf(id); i < m_Data.size()-1; i++) {
-					swap(idAt(i), idAt(i + 1));
+	public:
+		void remove(ID id)
+		{
+			size_t dataIndex = m_IDs[id.value];
+			ID lastDataID = m_RevIDs.back();
+
+			if (m_KeepOrder)
+			{
+				for (size_t i = indexOf(id); i < m_Data.size() - 1; i++)
+				{
+					swapDataLocation(idAt(i), idAt(i + 1));
 				}
 			}
-			else {
-				swap(id, lastDataID);
+			else
+			{
+				swapDataLocation(id, lastDataID);
 			}
 
-			m_FreeIdSlots.push_back(id);
+			m_FreeIDSlots.push_back(id);
 			m_Data.pop_back();
-			m_RevIds.pop_back();
-			if (m_Data.size() == 0) {
+			m_RevIDs.pop_back();
+			if (m_Data.empty())
+			{
 				clear();
 			}
 		}
 
-		void clear() {
+		void clear()
+		{
 			m_Data.clear();
-			m_Ids.clear();
-			m_RevIds.clear();
-			m_FreeIdSlots.clear();
+			m_IDs.clear();
+			m_RevIDs.clear();
+			m_FreeIDSlots.clear();
 		}
 
-		template<typename ...Args>
-		ID emplace(Args&& ...args) {
+		template <typename... Args>
+		ID emplace(Args &&...args)
+		{
 			m_Data.emplace_back(std::forward<Args>(args)...);
-			ID id = m_Data.size() - 1;
+			ID id{m_Data.size() - 1};
 			ID idIndex = addID(id);
-			m_RevIds.push_back(idIndex);
+			m_RevIDs.push_back(idIndex);
 			return idIndex;
 		}
 
-		ID push(T element) {
+		ID push(T element)
+		{
 			m_Data.push_back(element);
-			ID id = m_Data.size() - 1;
+			ID id = ID(m_Data.size() - 1);
 			ID idIndex = addID(id);
-			m_RevIds.push_back(idIndex);
+			m_RevIDs.push_back(idIndex);
 			return idIndex;
 		}
 
-		T& get(ID id) {
-			if (id >= 0 && id < m_Ids.size() && std::find(m_FreeIdSlots.begin(), m_FreeIdSlots.end(), id) == m_FreeIdSlots.end()) {
-				return m_Data[(size_t)m_Ids[(size_t)id]];
+		T &get(ID id)
+		{
+			if (validID(id))
+			{
+				return m_Data[m_IDs[id.value]];
 			}
-			else {
+			else
+			{
 				std::string faliureReason = "";
-				if (id < 0 || id > m_Ids.size()) {
+				if (id.value < 0 || id.value >= m_IDs.size())
+				{
 					faliureReason = "ID out of bounds.";
 				}
-				else {
+				else
+				{
 					faliureReason = "The object with this id has been deleted.";
 				}
-				throw std::invalid_argument("ID: " + std::to_string(id) + " is not a valid ID. " + faliureReason);
+				throw std::invalid_argument("ID: " + std::to_string(id.value) + " is not a valid ID. " + faliureReason);
 			}
 		}
 
-		const T& get(ID id) const {
-			if (id >= 0 && std::find(m_FreeIdSlots.begin(), m_FreeIdSlots.end(), id) == m_FreeIdSlots.end()) {
-				return m_Data[(size_t)m_Ids[(size_t)id]];
+		const T &get(ID id) const
+		{
+			if (validID(id))
+			{
+				return m_Data[m_IDs[id.value]];
 			}
-			else {
+			else
+			{
 				std::string faliureReason;
-				if (id < 0 || id > m_Ids.size()) {
+				if (id.value < 0 || id.value >= m_IDs.size())
+				{
 					faliureReason = "ID out of bounds.";
 				}
-				else {
+				else
+				{
 					faliureReason = "The object with this id has been deleted.";
 				}
-				throw std::invalid_argument("ID: " + std::to_string(id) + " is not a valid ID. " + faliureReason);
+				throw std::invalid_argument("ID: " + std::to_string(id.value) + " is not a valid ID. " + faliureReason);
 			};
 		}
 
-		inline ID idAt(size_t index) const {
-			return m_RevIds[index];
+		inline ID idAt(size_t index) const
+		{
+			return m_RevIDs[index];
 		}
 
-		bool validID(ID id) {
-			return id >= 0 && id < m_Ids.size() && std::find(m_FreeIdSlots.begin(), m_FreeIdSlots.end(), id) == m_FreeIdSlots.end();
+		bool validID(ID id)
+		{
+			return id.value >= 0 && id.value < m_IDs.size() && std::find(m_FreeIDSlots.begin(), m_FreeIDSlots.end(), id) == m_FreeIDSlots.end();
 		}
 
-		inline const size_t size() const {
+		inline const size_t size() const
+		{
 			return m_Data.size();
 		}
 
-		inline T& operator [](ID id) {
-			return m_Data[(size_t)m_Ids[(size_t)id]];
+		inline T &operator[](ID id)
+		{
+			return m_Data[m_IDs[id.value]];
 		}
 
-		inline const T& operator [](ID id) const {
-			return m_Data[(size_t)m_Ids[(size_t)id]];
+		inline const T &operator[](ID id) const
+		{
+			return m_Data[m_IDs[id.value]];
 		}
 
-		inline T& dataAt(size_t index) {
+		inline T &dataAt(size_t index)
+		{
 			return m_Data[index];
 		}
 
-		inline const T& dataAt(size_t index) const {
+		inline const T &dataAt(size_t index) const
+		{
 			return m_Data[index];
 		}
 
-		inline size_t indexOf(ID id) const {
-			return m_Ids[id];
+		inline size_t indexOf(ID id) const
+		{
+			return m_IDs[id.value];
 		}
 
-		inline const std::vector<T>& data() const {
+		inline const std::vector<T> &data() const
+		{
 			return m_Data;
 		}
 
-		inline std::vector<T>& data() {
+		inline std::vector<T> &data()
+		{
 			return m_Data;
 		}
 
-		inline typename std::vector<T>::iterator begin() {
+		inline typename std::vector<T>::iterator begin()
+		{
 			return m_Data.begin();
 		}
 
-		inline typename std::vector<T>::iterator end() {
+		inline typename std::vector<T>::iterator end()
+		{
 			return m_Data.end();
 		}
 
-		inline typename std::vector<T>::const_iterator begin() const {
+		inline typename std::vector<T>::const_iterator begin() const
+		{
 			return m_Data.begin();
 		}
 
-		inline typename std::vector<T>::const_iterator end() const {
+		inline typename std::vector<T>::const_iterator end() const
+		{
 			return m_Data.end();
 		}
 	};
 
-	// Returns false if ID cannot be valid. Returns true if ID can be valid.
-	static bool validID(ID id) {
-		return id >= 0;
-	}
-
 	// An ID that will not pass any validity tests.
-	const ID invalidID = -1;
+	const ID invalidID = ID(std::numeric_limits<std::size_t>::max());
 
 }
